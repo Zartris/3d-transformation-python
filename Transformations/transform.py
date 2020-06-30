@@ -1150,9 +1150,9 @@ class Transform(object):
         m = np.vstack((m, [0, 0, 0, 1]))
         return m
 
-    def rotation_as_euler(self):
+    def rotation_as_euler(self, order='zyx' ):
         r = R.from_matrix(self.rotation.T)
-        return r.as_euler('zyx', degrees=True)
+        return r.as_euler(order, degrees=True)
 
 
 ###################################################

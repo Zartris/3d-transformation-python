@@ -6,6 +6,8 @@ from Transformations import cv_lib
 from Transformations.transform import Transform, Scaling
 from scipy.spatial.transform import Rotation as R
 
+from test import gt_transform
+
 if __name__ == '__main__':
     # ================================================================================================================
     # Connect to UE4 Server
@@ -21,10 +23,20 @@ if __name__ == '__main__':
     drone_data, ship_data = convert_data(data)
     assert drone_data is not None
     assert ship_data is not None
+
     drone_location = drone_data.location
     drone_rotation = drone_data.rotation
     ship_location = ship_data.location
     ship_rotation = ship_data.rotation
+
+    ship_w = np.array([638.257202, 780.391113, 563.965942])
+    ship_d = np.array([353.550720, 353.546204, 489.989777])
+    ship_c = np.array([484.990356, 353.545746, 353.550629])
+    drone_w = np.array([0, 500, 500])
+    drone_c = np.array([0, 0, 5])
+
+    gt_wl, t_gt_wl = gt_transform(drone_data.world_to_local, decimals=12)
+    gt_lw, t_gt_lw = gt_transform(drone_data.local_to_world, decimals=12)
 
     # ================================================================================================================
     # Find left-hand to right-hand system:
@@ -36,7 +48,7 @@ if __name__ == '__main__':
 
     # Find the rotation between left-hand coordinates to right-hand coordinates
     _, l_to_r_rotation = cv_lib.get_3d_rotation_matrix_from_yaw_pitch_roll(
-        yaw=-90.0,
+        yaw=90.0,
         pitch=0.0,
         roll=0.0,
         degrees=True,
@@ -47,10 +59,17 @@ if __name__ == '__main__':
     t_right_to_left = t_left_to_right
 
     # Convert incomming rotations:
-    rot_transform = {'yaw_trans': -1, 'pitch_trans': 1, 'roll_trans': -1}
+    rot_transform = {'yaw_trans': -1, 'pitch_trans': 1, 'roll_trans': 1}
 
 
     def rotation_transform(yaw, pitch, roll):
+        """
+        Switch pitch and roll and minus the yaw angle rotation.
+        :param yaw:
+        :param pitch:
+        :param roll:
+        :return:
+        """
         y = yaw * rot_transform['yaw_trans']
         p = roll * rot_transform['roll_trans']
         r = pitch * rot_transform['pitch_trans']
@@ -73,6 +92,7 @@ if __name__ == '__main__':
     # Find world to Drone transform_matrix
     # ================================================================================================================
     # Find the rotation between drone and world axis (The difference in (Drone rotation) and world rotation = 0,0,0)
+    order = 'zyx'
     d_yaw_r, d_pitch_r, d_roll_r = rotation_transform(drone_data.rotation.yaw,
                                                       drone_data.rotation.pitch,
                                                       drone_data.rotation.roll)
@@ -81,10 +101,11 @@ if __name__ == '__main__':
         yaw=d_yaw_r,
         pitch=d_pitch_r,
         roll=d_roll_r,
+        order=order,
         degrees=True,
         verbose=False)
 
-    r = R.from_matrix(d_rotation_r.T).as_euler('zyx', degrees=True)
+    r = R.from_matrix(d_rotation_r.T).as_euler(order, degrees=True)
     # Find the translation between drone coord to world coord ( Since the location we have is in world coord its easy)
     d_location_l = np.array([drone_data.location.x, drone_data.location.y, drone_data.location.z])
     d_location_r = t_left_to_right(d_location_l)
@@ -105,16 +126,16 @@ if __name__ == '__main__':
     drone_drone_pos_l = t_right_to_left(drone_drone_pos_r)
 
     # the ship test:
-    ship_world_pos_l = np.array([ship_data.location.x, ship_data.location.y, ship_data.location.z]).round(decimals=12)
-    ship_world_pos_r = t_left_to_right(ship_world_pos_l)
+    ship_world_pos_l_gt = np.array([ship_data.location.x, ship_data.location.y, ship_data.location.z]).round(
+        decimals=12)
+    ship_world_pos_r = t_left_to_right(ship_world_pos_l_gt)
     ship_drone_pos_r = t_world_to_drone(ship_world_pos_r)
     ship_drone_pos_l = t_right_to_left(ship_drone_pos_r)
 
     # the ship drone to world test:
-
-    ship_drone_pos_l = np.array([355.552124, 353.676727, -488.427063])
-    ship_drone_pos_r = t_left_to_right(ship_drone_pos_l)
-    ship_world_pos_r = t_drone_to_world(ship_drone_pos_r)
-    ship_world_pos_l = t_right_to_left(ship_world_pos_r)
+    ship_drone_pos_l_gt = np.array([-100,-50, -25])
+    ship_drone_pos_r_2 = t_left_to_right(ship_drone_pos_l_gt)
+    ship_world_pos_r_2 = t_drone_to_world(ship_drone_pos_r_2)
+    ship_world_pos_l_2 = t_right_to_left(ship_world_pos_r_2)
 
     debug = 0

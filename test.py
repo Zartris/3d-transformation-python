@@ -20,7 +20,7 @@ def create_top_view_ship_camera(altitude):
     ship_pixel_length = ship_length / altitude
 
 
-def gt_transform(gt_tf):
+def gt_transform(gt_tf, decimals=2):
     gt_trans = np.array([gt_tf['wPlane']['x'], gt_tf['wPlane']['y'],
                          gt_tf['wPlane']['z']]).reshape(3, 1)
     gt_xplane = np.array([gt_tf['xPlane']['x'], gt_tf['xPlane']['y'],
@@ -29,11 +29,12 @@ def gt_transform(gt_tf):
                           gt_tf['yPlane']['z']]).reshape(3, 1)
     gt_zplane = np.array([gt_tf['zPlane']['x'], gt_tf['zPlane']['y'],
                           gt_tf['zPlane']['z']]).reshape(3, 1)
-    gt = np.append(np.append(gt_xplane, gt_yplane), gt_zplane).reshape(3, 3)
-    gt = np.hstack((gt, gt_trans))
+    gt_rot = np.append(np.append(gt_xplane, gt_yplane), gt_zplane).reshape(3, 3)
+    t_gt = Transform(gt_trans, gt_rot)
+    gt = np.hstack((gt_rot, gt_trans))
     gt = np.vstack((gt, [0, 0, 0, 1]))
-    gt = np.round(gt, decimals=2)
-    return gt
+    gt = np.round(gt, decimals=decimals)
+    return gt, t_gt
 
 
 if __name__ == '__main__':

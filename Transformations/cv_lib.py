@@ -31,6 +31,7 @@ def get_rotation_from_compass(compass_data: float, degrees=True):
 def get_3d_rotation_matrix_from_yaw_pitch_roll(yaw: float = 0.0,
                                                pitch: float = 0.0,
                                                roll: float = 0.0,
+                                               order='zyx',
                                                degrees=True,
                                                rounding_digits=12,
                                                verbose=False):
@@ -89,17 +90,17 @@ def get_3d_rotation_matrix_from_yaw_pitch_roll(yaw: float = 0.0,
     #     if roll < 0:
     #         roll += 360
 
-    r = R.from_euler("zxy", [yaw, pitch, roll], degrees=True)
+    r = R.from_euler(order, [yaw, pitch, roll], degrees=degrees)
 
     rotation_matrix = np.array(r.as_matrix())
     rotation_matrix_rounded = np.round(rotation_matrix, decimals=rounding_digits)
-    d1 = R.from_matrix(rotation_matrix).as_euler('zyx', degrees=True)
-    r_test = R.from_matrix(rm)
-    d = r_test.as_euler("zyx", degrees=True)
-    d2 = r.as_euler("zyx", degrees=True)
+    # d1 = R.from_matrix(rotation_matrix).as_euler('zyx', degrees=True)
+    # r_test = R.from_matrix(rm)
+    # d = r_test.as_euler("zyx", degrees=True)
+    # d2 = r.as_euler("zyx", degrees=True)
     if verbose:
         print("Rotation matrix: \n", str(rotation_matrix_rounded))
-    return r, rotation_matrix_rounded.T
+    return r, rotation_matrix_rounded
 
 
 def get_rotation_matrix(theta: float, ux: float, uy: float, uz: float, verbose=False):
