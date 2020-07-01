@@ -1,21 +1,103 @@
 import numpy as np
 
-from Data.UE4Data import convert_data
+from Data.UE4Data import convert_data, State
 from socket_io_client import SocketIoClient
 from Transformations import cv_lib
-from Transformations.transform import Transform, Scaling
+from Transformations.transform import Transform, Scaling, Rotation
 from scipy.spatial.transform import Rotation as R
 
 from test import gt_transform
+
+camera_focal_length = 0
+camera_fov = 0
+
+camera_state_in_drone_coord = State({'x': 0.0, 'y': 0.0, 'z': -5.0},
+                                    {'pitch': -90, 'roll': 0, 'yaw': 0})
+
+
+def get_drone_to_camera_transformation():
+    # ================================================================================================================
+    # Find drone to camera transform_matrix
+    # ================================================================================================================
+    # Since the camera information is static atm we just use static values:
+    global camera_state_in_drone_coord
+    rotation = camera_state_in_drone_coord.rotation
+    location = camera_state_in_drone_coord.location
+    # Find the rotation between camera and drone axis
+
+    camera_rotation_x = Rotation(rotation.roll, axis='x', degrees=True, left_hand=False)
+    camera_rotation_y = Rotation(rotation.pitch, axis='y', degrees=True, left_hand=False)
+    camera_rotation_z = Rotation(rotation.yaw, axis='z', degrees=True, left_hand=True)
+    camera_rotation_xy = camera_rotation_x.after(camera_rotation_y)
+    camera_rotation_xyz = camera_rotation_xy.after(camera_rotation_z)
+
+    # Find the translation between camera coord to drone coord
+    camera_pos_d = np.array([location.x, location.y, location.z]).reshape(3, 1)
+    drone_to_camera_trans = - camera_pos_d
+
+    # Invert the translation
+    drone_to_camera = Transform(rotation=camera_rotation_xyz,
+                                translation=drone_to_camera_trans,
+                                translate_before_rotate=True)
+    camera_to_drone = world_to_drone.inverse()
+
+    return drone_to_camera, camera_to_drone
+
+
+def find_front_offset(ship_length):
+    if 0 < ship_length < 100:
+        return - (ship_length * 0.07)
+    if ship_length < 150:
+        return -(ship_length * 0.10)
+    if ship_length < 200:
+        return -(ship_length * 0.13)
+    return -(ship_length * 0.16)
+
+
+def compute_ship_model_points(dist_to_bow: int,
+                              dist_to_stern: int,
+                              dist_to_starboard: int,
+                              dist_to_port: int):
+    """
+    :param dist_to_bow: distance from gps antenna to bow(front) (meters)
+    :param dist_to_stern: distance from gps antenna to stern(back) (meters)
+    :param dist_to_starboard: distance from gps antenna to starboard(right) (meters)
+    :param dist_to_port: distance from gps antenna to port(left) (meters)
+    :return: a dictionary with points
+    """
+    ship_length = dist_to_bow + dist_to_stern
+    p_front_center = np.array([dist_to_bow, 0, 0])
+    p_back_center = np.array([-dist_to_stern, 0, 0])
+    p_right_center = np.array([0, dist_to_starboard, 0])
+    p_left_center = np.array([0, -dist_to_port, 0])
+
+    front_offset = np.array([find_front_offset(ship_length), 0, 0])
+
+    p_back_left_corner = p_back_center + p_left_center
+    p_back_right_corner = p_back_center + p_right_center
+    p_front_left_corner = p_front_center + front_offset + p_left_center
+    p_front_right_corner = p_front_center + front_offset + p_right_center
+
+    result = {
+        'p_front_center': p_front_center,
+        'p_front_right_corner': p_front_right_corner,
+        'p_front_left_corner': p_front_left_corner,
+        'p_back_right_corner': p_back_right_corner,
+        'p_back_left_corner': p_back_left_corner
+    }
+    return result
+
 
 if __name__ == '__main__':
     # ================================================================================================================
     # Connect to UE4 Server
     # ================================================================================================================
     sio = SocketIoClient()
-
+    staticShipData = None
+    ship_model_points_l = None
+    drone_to_camera, camera_to_drone = get_drone_to_camera_transformation()
     # ================================================================================================================
-    # Extract UE4 Data (LEFT-HAND)
+    # Extract UE4 Data (LEFT-HAND axis :: Rotations = roll: Right-handed, pitch: Right-handed, yaw: Left-handed)
     # ================================================================================================================
     data = None
     while data is None:  # Waiting for ue4 to connect to server:
@@ -24,118 +106,56 @@ if __name__ == '__main__':
     assert drone_data is not None
     assert ship_data is not None
 
+    if staticShipData is None:
+        staticShipData = data['StaticShipData']  # [front,back,left,right]
+        ship_model_points_l = compute_ship_model_points(staticShipData[0],
+                                                        staticShipData[1],
+                                                        staticShipData[3],
+                                                        staticShipData[2])
+
     drone_location = drone_data.location
     drone_rotation = drone_data.rotation
     ship_location = ship_data.location
     ship_rotation = ship_data.rotation
 
-    ship_w = np.array([638.257202, 780.391113, 563.965942])
-    ship_d = np.array([353.550720, 353.546204, 489.989777])
-    ship_c = np.array([484.990356, 353.545746, 353.550629])
-    drone_w = np.array([0, 500, 500])
-    drone_c = np.array([0, 0, 5])
-
-    gt_wl, t_gt_wl = gt_transform(drone_data.world_to_local, decimals=12)
-    gt_lw, t_gt_lw = gt_transform(drone_data.local_to_world, decimals=12)
-
-    # ================================================================================================================
-    # Find left-hand to right-hand system:
-    # ================================================================================================================
-    # Very simple Notes: https://www.tutorialspoint.com/computer_graphics/3d_transformation.htm
-    # Change direction of y axis (by scaling)
-    scaling = Scaling(y=-1).m_scaling
-    print(scaling)
-
-    # Find the rotation between left-hand coordinates to right-hand coordinates
-    _, l_to_r_rotation = cv_lib.get_3d_rotation_matrix_from_yaw_pitch_roll(
-        yaw=90.0,
-        pitch=0.0,
-        roll=0.0,
-        degrees=True,
-        verbose=False)
-
-    t_left_to_right = Transform(rotation=l_to_r_rotation, scaling=scaling)
-    # Since the right handed coordinate system is using reverse rotation, we do not need to inverse the transformation
-    t_right_to_left = t_left_to_right
-
-    # Convert incomming rotations:
-    rot_transform = {'yaw_trans': -1, 'pitch_trans': 1, 'roll_trans': 1}
-
-
-    def rotation_transform(yaw, pitch, roll):
-        """
-        Switch pitch and roll and minus the yaw angle rotation.
-        :param yaw:
-        :param pitch:
-        :param roll:
-        :return:
-        """
-        y = yaw * rot_transform['yaw_trans']
-        p = roll * rot_transform['roll_trans']
-        r = pitch * rot_transform['pitch_trans']
-        return y, p, r
-
-
-    # ================================================================================================================
-    # Check if true:
-    # ================================================================================================================
-    pos_left = np.array([1., 2., 3.]).reshape((3, 1))
-    pos_left_in_right = np.array([2., 1., 3.]).reshape((3, 1))
-
-    l_to_r_pos = t_left_to_right(pos_left)
-    assert np.equal(l_to_r_pos, pos_left_in_right).all()
-    r_to_l_pos = t_right_to_left(l_to_r_pos)
-    assert np.equal(r_to_l_pos, pos_left).all()
-
-    debug = 0
     # ================================================================================================================
     # Find world to Drone transform_matrix
     # ================================================================================================================
     # Find the rotation between drone and world axis (The difference in (Drone rotation) and world rotation = 0,0,0)
-    order = 'zyx'
-    d_yaw_r, d_pitch_r, d_roll_r = rotation_transform(drone_data.rotation.yaw,
-                                                      drone_data.rotation.pitch,
-                                                      drone_data.rotation.roll)
+    drone_rotation_x = Rotation(drone_rotation.roll, axis='x', degrees=True, left_hand=False)
+    drone_rotation_y = Rotation(drone_rotation.pitch, axis='y', degrees=True, left_hand=False)
+    drone_rotation_z = Rotation(drone_rotation.yaw, axis='z', degrees=True, left_hand=True)
+    drone_rotation_xy = drone_rotation_x.after(drone_rotation_y)
+    drone_rotation_xyz = drone_rotation_xy.after(drone_rotation_z)
 
-    _, d_rotation_r = cv_lib.get_3d_rotation_matrix_from_yaw_pitch_roll(
-        yaw=d_yaw_r,
-        pitch=d_pitch_r,
-        roll=d_roll_r,
-        order=order,
-        degrees=True,
-        verbose=False)
-
-    r = R.from_matrix(d_rotation_r.T).as_euler(order, degrees=True)
     # Find the translation between drone coord to world coord ( Since the location we have is in world coord its easy)
-    d_location_l = np.array([drone_data.location.x, drone_data.location.y, drone_data.location.z])
-    d_location_r = t_left_to_right(d_location_l)
+    drone_pos_w = np.array([drone_location.x, drone_location.y, drone_location.z]).reshape(3, 1)
+    world_to_drone_trans = - drone_pos_w
 
-    # Combine into transformation matrix from drone coord to world coord
-    t_drone_to_world = Transform(d_location_r, d_rotation_r)
-
-    # To find the inverse transformation we invert the matrix ( Hence now we have from world to drone transformation)
-    t_world_to_drone = t_drone_to_world.inverse()
+    # Invert the translation
+    world_to_drone = Transform(rotation=drone_rotation_xyz,
+                               translation=world_to_drone_trans,
+                               translate_before_rotate=True)
+    drone_to_world = world_to_drone.inverse()
 
     # ================================================================================================================
-    # Check if true:
+    # Find world to Ship transform_matrix
     # ================================================================================================================
-    # The zero test
-    drone_world_pos_l = d_location_l
-    drone_world_pos_r = t_left_to_right(drone_world_pos_l)
-    drone_drone_pos_r = t_world_to_drone(drone_world_pos_r)
-    drone_drone_pos_l = t_right_to_left(drone_drone_pos_r)
+    # Find the rotation between Ship and world axis
+    ship_rotation_x = Rotation(ship_rotation.roll, axis='x', degrees=True, left_hand=False)
+    ship_rotation_y = Rotation(ship_rotation.pitch, axis='y', degrees=True, left_hand=False)
+    ship_rotation_z = Rotation(ship_rotation.yaw, axis='z', degrees=True, left_hand=True)
+    ship_rotation_xy = ship_rotation_x.after(ship_rotation_y)
+    ship_rotation_xyz = ship_rotation_xy.after(ship_rotation_z)
 
-    # the ship test:
-    ship_world_pos_l_gt = np.array([ship_data.location.x, ship_data.location.y, ship_data.location.z]).round(
-        decimals=12)
-    ship_world_pos_r = t_left_to_right(ship_world_pos_l_gt)
-    ship_drone_pos_r = t_world_to_drone(ship_world_pos_r)
-    ship_drone_pos_l = t_right_to_left(ship_drone_pos_r)
+    # Find the translation between Ship coord to world coord ( Since the location we have is in world coord its easy)
+    ship_pos_w = np.array([ship_location.x, ship_location.y, ship_location.z]).reshape(3, 1)
+    world_to_ship_trans = - ship_pos_w
 
-    # the ship drone to world test:
-    ship_drone_pos_l_gt = np.array([-100,-50, -25])
-    ship_drone_pos_r_2 = t_left_to_right(ship_drone_pos_l_gt)
-    ship_world_pos_r_2 = t_drone_to_world(ship_drone_pos_r_2)
-    ship_world_pos_l_2 = t_right_to_left(ship_world_pos_r_2)
+    # Invert the translation
+    world_to_ship = Transform(rotation=ship_rotation_xyz,
+                              translation=world_to_ship_trans,
+                              translate_before_rotate=True)
+    ship_to_world = world_to_drone.inverse()
 
     debug = 0

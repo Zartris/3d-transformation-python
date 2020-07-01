@@ -3,7 +3,7 @@ import numpy as np
 from Data.UE4Data import convert_data, State
 from socket_io_client import SocketIoClient
 from Transformations import cv_lib
-from Transformations.transform import Vector, Rotation, Transform
+from Transformations.transform import Rotation, Transform
 
 ship_length = 175.50
 ship_width = 40.00

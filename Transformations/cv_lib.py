@@ -103,6 +103,64 @@ def get_3d_rotation_matrix_from_yaw_pitch_roll(yaw: float = 0.0,
     return r, rotation_matrix_rounded
 
 
+def get_3d_rotation_matrix_from_yaw_pitch_roll_ue4(yaw: float = 0.0,
+                                                   pitch: float = 0.0,
+                                                   roll: float = 0.0,
+                                                   order='zyx',
+                                                   degrees=True,
+                                                   rounding_digits=12,
+                                                   verbose=False):
+    """
+    :param yaw: rotation around z-axis
+    :param pitch: rotation around y-axis
+    :param roll: rotation around z-axis
+    :param degrees: if the rotation is in degrees
+    :param rounding_digits: How many digits to take into count
+    :param verbose: If we should print the result
+    :return: combined rotation
+    """
+
+    # # Here is the math, but scipy has made it easy for us.
+
+    yaw_radians = degree_to_radians(yaw)
+    pitch_radians = degree_to_radians(pitch)
+    roll_radians = degree_to_radians(roll)
+
+    # Rotation around x axis (roll):
+    x_rotation = np.zeros((3, 3), dtype=np.float)
+    x_rotation[0][0] = 1
+    x_rotation[1][1] = np.cos(roll_radians)
+    x_rotation[1][2] = -np.sin(roll_radians)
+    x_rotation[2][1] = np.sin(roll_radians)
+    x_rotation[2][2] = np.cos(roll_radians)
+
+    # Rotation around y axis (pitch):
+    y_rotation = np.zeros((3, 3), dtype=np.float)
+    y_rotation[0][0] = np.cos(pitch_radians)
+    y_rotation[0][2] = np.sin(pitch_radians)
+    y_rotation[1][1] = 1
+    y_rotation[2][0] = -np.sin(pitch_radians)
+    y_rotation[2][2] = np.cos(pitch_radians)
+    # Rotation around z axis (yaw):
+    z_rotation = np.zeros((3, 3), dtype=np.float)
+    z_rotation[0][0] = np.cos(yaw_radians)
+    z_rotation[0][1] = np.sin(yaw_radians)
+    z_rotation[1][0] = -np.sin(yaw_radians)
+    z_rotation[1][1] = np.cos(yaw_radians)
+    z_rotation[2][2] = 1
+
+    rotation_matrix = np.dot(np.dot(x_rotation, y_rotation), z_rotation)
+    if verbose:
+        print("rotation matrix around x-axis:\n", str(x_rotation))
+        print('rotation matrix around y-axis:\n', str(y_rotation))
+        print("rotation matrix around z-axis:\n", str(z_rotation))
+        print("rotation matrix:\n", str(rotation_matrix))
+    rm = rotation_matrix
+    rm = rm.round(decimals=12)
+    return x_rotation, y_rotation, z_rotation
+
+
+
 def get_rotation_matrix(theta: float, ux: float, uy: float, uz: float, verbose=False):
     """
     NOT TESTED

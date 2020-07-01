@@ -23,7 +23,7 @@ class State:
 
 # Wrapper
 class Drone(State):
-    def __init__(self, location, rotation, world_to_local, local_to_world):
+    def __init__(self, location, rotation, world_to_local=None, local_to_world=None):
         super().__init__(location, rotation)
         self.world_to_local = world_to_local
         self.local_to_world = local_to_world
@@ -42,9 +42,7 @@ def convert_data(data: dict) -> (Drone, Ship):
         location = data[v_type][0]
         rotation = data[v_type][1]
         if v_type == 'Drone':
-            world_to_local = data[v_type][2]
-            local_to_world = data[v_type][3]
-            drone = Drone(location, rotation, world_to_local, local_to_world)
+            drone = Drone(location, rotation)
         elif v_type == 'Ship':
             ship = Ship(location, rotation)
     return drone, ship
