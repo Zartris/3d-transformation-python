@@ -14,6 +14,11 @@ from scipy.spatial.transform import Rotation as R
 import scipy
 
 
+def np_swap_values(array, index1, index2):
+    array[[index1, index2]] = array[[index2, index1]]
+    return array
+
+
 def test():
     pass
 
@@ -158,7 +163,6 @@ def get_3d_rotation_matrix_from_yaw_pitch_roll_ue4(yaw: float = 0.0,
     rm = rotation_matrix
     rm = rm.round(decimals=12)
     return x_rotation, y_rotation, z_rotation
-
 
 
 def get_rotation_matrix(theta: float, ux: float, uy: float, uz: float, verbose=False):

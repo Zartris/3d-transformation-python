@@ -3,7 +3,7 @@ import numpy as np
 from Data.UE4Data import convert_data
 from socket_io_client import SocketIoClient
 from Transformations import cv_lib
-from Transformations.transform import Transform, Scaling, Rotation
+from Transformations.transform import Transform, TScaling, TRotation
 from scipy.spatial.transform import Rotation as R
 
 from test import gt_transform
@@ -34,7 +34,7 @@ if __name__ == '__main__':
     # ================================================================================================================
     # Very simple Notes: https://www.tutorialspoint.com/computer_graphics/3d_transformation.htm
     # Change direction of y axis (by scaling)
-    scaling = Scaling(y=-1).matrix
+    scaling = TScaling(y=-1).matrix
 
     # Find the rotation between left-hand coordinates to right-hand coordinates
     _, l_to_r_rotation = cv_lib.get_3d_rotation_matrix_from_yaw_pitch_roll(
@@ -66,9 +66,9 @@ if __name__ == '__main__':
     p = np.dot(x_rotation, p)
     p2 = test_r.dot(test_p)
 
-    r_x = Rotation(drone_rotation.roll, axis='x', degrees=True, left_hand=False)
-    r_y = Rotation(drone_rotation.pitch, axis='y', degrees=True, left_hand=False)
-    r_z = Rotation(drone_rotation.yaw, axis='z', degrees=True, left_hand=True)
+    r_x = TRotation(drone_rotation.roll, axis='x', degrees=True, left_hand=False)
+    r_y = TRotation(drone_rotation.pitch, axis='y', degrees=True, left_hand=False)
+    r_z = TRotation(drone_rotation.yaw, axis='z', degrees=True, left_hand=True)
     r_xy = r_x.after(r_y)
     r_xyz = r_xy.after(r_z)
 

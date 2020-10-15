@@ -1,14 +1,15 @@
-from copy import deepcopy as copy
 import numpy as np
-
-from Transformations import conversions as conv
 from scipy.spatial.transform import Rotation as R
+
+from Data.UE4Data import State
 
 
 ###################################################
 # CLASSES                                         #
 ###################################################
-class Rotation(object):
+
+
+class TRotation(object):
     def __init__(self, angle=0, axis='x', degrees=True, left_hand=False):
         """Set Rotation by angle about axis.
 
@@ -35,13 +36,13 @@ class Rotation(object):
         return self.dot(other)
 
     def __truediv__(self, other):
-        if isinstance(other, Rotation):
+        if isinstance(other, TRotation):
             return self.__mul__(other.inverse())
         else:
             raise TypeError()
 
     def __eq__(self, other):
-        assert isinstance(other, Rotation)
+        assert isinstance(other, TRotation)
         Meq = self.matrix == other.matrix
         return np.sum(Meq) == 9
 
@@ -62,7 +63,7 @@ class Rotation(object):
         By transposing the rotation matrix and reverse the axis_order
 
         """
-        return Rotation().set_matrix(self.matrix.T, self.axis_order[::-1])
+        return TRotation().set_matrix(self.matrix.T, self.axis_order[::-1])
 
     def rotate(self, angle, axis):
         """Additionally rotate the Rotation.
@@ -77,9 +78,9 @@ class Rotation(object):
 
             Returns
             -------
-            Rotation
+            TRotation
         """
-        other = Rotation(angle, axis)
+        other = TRotation(angle, axis)
         new = other.after(self)
         self.set_matrix(new.get_matrix(), new.axis_order)
         return self
@@ -89,12 +90,12 @@ class Rotation(object):
     ###################################################
     def dot(self, other):
         """Return result of dot-product with Rotation or np dnarray"""
-        if isinstance(other, Rotation):
+        if isinstance(other, TRotation):
             A = self.get_matrix()
             B = other.get_matrix()
             matrix = A.dot(B)
             axis = self.axis_order + other.axis_order
-            return Rotation().set_matrix(matrix, axis)
+            return TRotation().set_matrix(matrix, axis)
         elif isinstance(other, np.ndarray):
             M = self.get_matrix()
             v = other
@@ -102,7 +103,7 @@ class Rotation(object):
             if v.shape[0] != M.shape[0]:
                 v = v.reshape((M.shape[0], 1))
             return M.dot(v)
-        elif isinstance(other, Scaling):
+        elif isinstance(other, TScaling):
             A = self.get_matrix()
             B = other.get_matrix()
             matrix = A.dot(B)
@@ -112,6 +113,7 @@ class Rotation(object):
 
     def after(self, other):
         """Return combined Rotation.
+            first other then self. (first z then yx)
             test_r = x_rotation.dot(y_rotation).dot(z_rotation)
             p = np.dot(z_rotation, point)
             p = np.dot(y_rotation, p)
@@ -128,7 +130,7 @@ class Rotation(object):
     ###################################################
     # SETTERS                                         #
     ###################################################
-    def set_matrix(self, matrix, axis):
+    def set_matrix(self, matrix, axis='xyz'):
         """Set rotation matrix."""
         assert isinstance(matrix, np.ndarray)
         assert matrix.shape == (3, 3)
@@ -238,7 +240,7 @@ class Rotation(object):
         return self.dot(v)
 
 
-class Scaling(object):
+class TScaling(object):
     def __init__(self, x=1, y=1, z=1, n=3):
         """
         :param x:
@@ -259,13 +261,13 @@ class Scaling(object):
         return self.matrix.dot(other)
 
     def __truediv__(self, other):
-        if isinstance(other, Scaling):
+        if isinstance(other, TScaling):
             return self.__mul__(np.linalg.inv(other.matrix))
         else:
             raise TypeError()
 
     def __eq__(self, other):
-        assert isinstance(other, Scaling)
+        assert isinstance(other, TScaling)
         Meq = self.matrix == other.matrix
         return np.sum(Meq) == 9
 
@@ -288,8 +290,8 @@ class Scaling(object):
 class Transform(object):
     def __init__(self,
                  translation: np.array = np.zeros((3, 1)),
-                 rotation: Rotation = Rotation(),
-                 scaling: Scaling = Scaling(),
+                 rotation: TRotation = TRotation(),
+                 scaling: TScaling = TScaling(),
                  translate_before_rotate=False):
 
         """Initialize.
@@ -320,7 +322,7 @@ class Transform(object):
         R = repr(self.rotation_as_euler())
         return 'Transformation with scale by\n%s\n after translate by\n%s\n lastly rotation by\n%s' % (s, t, R)
 
-    def __call__(self, v, decimals=12):
+    def __call__(self, v: np.ndarray, decimals=12) -> np.ndarray:
         return self.apply_to(v, decimals)
 
     ###################################################
@@ -372,10 +374,10 @@ class Transform(object):
             v = v.reshape(self.translation.shape)
         return v + self.translation
 
-    def to_matrix(self):
-        r = self.rotation
+    def to_matrix(self) -> np.ndarray:
+        r = self.rotation.get_matrix()
         t = self.translation
-        m = np.hstack((r, t))
+        m = np.hstack((r.dot(self.scaling.get_matrix()), t))
         m = np.vstack((m, [0, 0, 0, 1]))
         return m
 
@@ -383,11 +385,76 @@ class Transform(object):
         r = R.from_matrix(self.rotation.get_matrix().T)
         return r.as_euler(order, degrees=True)
 
+    def after(self, other):
+        B = other
+        if isinstance(other, Transform):
+            B = other.to_matrix()
+        A = self.to_matrix()
 
-###################################################
-# TESTING                                         #
-###################################################
-# The functions have all been tested.
-#
+        matrix = A.dot(B)
+        axis = self.rotation.axis_order
+
+        return Transform().set_from_matrix(matrix, axis)
+
+    def before(self, other):
+        return other.after(self)
+
+    def set_from_matrix(self, matrix, axis_order):
+        # Translation
+        self.translation = matrix.T[3, :3].reshape(3, 1)
+
+        scaled_R = matrix[:3, :3]
+        s_x = np.linalg.norm(scaled_R.T[0])
+        s_y = np.linalg.norm(scaled_R.T[1])
+        s_z = np.linalg.norm(scaled_R.T[2])
+        self.scaling = TScaling(int(s_x), int(s_y), int(s_z))
+
+        rotation = scaled_R.T
+        rotation[0] = rotation[0] / s_x
+        rotation[1] = rotation[1] / s_y
+        rotation[2] = rotation[2] / s_z
+        rotation = rotation.T
+        self.rotation = TRotation().set_matrix(rotation, axis_order)
+        return self
+
+
+camera_state_in_drone_coord = State({'x': 0.0, 'y': 0.0, 'z': -5.0},
+                                    {'pitch': -90, 'roll': -180, 'yaw': -90})
+
+
+def get_drone_to_camera_transformation():
+    # ================================================================================================================
+    # Find drone to camera transform_matrix
+    # ================================================================================================================
+    # Since the camera information is static atm we just use static values:
+    global camera_state_in_drone_coord
+    rotation = camera_state_in_drone_coord.rotation
+    location = camera_state_in_drone_coord.location
+    # Find the rotation between camera and drone axis
+
+    camera_rotation_x = TRotation(rotation.roll, axis='x', degrees=True, left_hand=False)
+    camera_rotation_y = TRotation(rotation.pitch, axis='y', degrees=True, left_hand=False)
+    camera_rotation_z = TRotation(rotation.yaw, axis='z', degrees=True, left_hand=True)
+    camera_rotation_xy = camera_rotation_x.after(camera_rotation_y)
+    camera_rotation_xyz = camera_rotation_xy.after(camera_rotation_z)
+
+    # Find the translation between camera coord to drone coord
+    camera_pos_d = np.array([location.x, location.y, location.z]).reshape(3, 1)
+    drone_to_camera_trans = - camera_pos_d
+
+    # Invert the translation
+    drone_to_camera = Transform(rotation=camera_rotation_xyz,
+                                translation=drone_to_camera_trans,
+                                translate_before_rotate=True)
+    camera_to_drone = drone_to_camera.inverse()
+
+    return drone_to_camera, camera_to_drone
+
+
 if __name__ == '__main__':
-    pass
+    t = Transform()
+    matrix = np.arange(1, 17).reshape(4, 4)
+    tf, _ = get_drone_to_camera_transformation()
+    tf.scaling = TScaling(2, 1, 1)
+    matrix = tf.to_matrix()
+    t.set_from_matrix(matrix, "zxy")
